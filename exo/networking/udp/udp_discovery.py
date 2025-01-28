@@ -1,9 +1,10 @@
 import asyncio
 import json
-import socket
 import time
 import traceback
 from typing import List, Dict, Callable, Tuple, Coroutine, Optional
+import netifaces
+
 from exo.networking.discovery import Discovery
 from exo.networking.peer_handle import PeerHandle
 from exo.topology.device_capabilities import (
@@ -14,8 +15,6 @@ from exo.topology.device_capabilities import (
 from exo.helpers import (
     DEBUG,
     DEBUG_DISCOVERY,
-    get_all_ip_addresses_and_interfaces,
-    get_interface_priority_and_type,
 )
 
 PEERS = [
@@ -23,6 +22,16 @@ PEERS = [
     ("10.0.0.2", 51820),
     ("10.0.0.3", 51820),
 ]
+
+
+def get_local_wg_ip() -> str:
+    interfaces = netifaces.interfaces()
+    for iface in interfaces:
+        if iface.startswith("wg"):
+            addrs = netifaces.ifaddresses(iface)
+            if netifaces.AF_INET in addrs:
+                return addrs[netifaces.AF_INET][0]["addr"]
+    return "0.0.0.0"
 
 
 class ListenProtocol(asyncio.DatagramProtocol):
@@ -36,15 +45,6 @@ class ListenProtocol(asyncio.DatagramProtocol):
 
     def datagram_received(self, data, addr):
         asyncio.create_task(self.on_message(data, addr))
-
-
-def get_broadcast_address(ip_addr: str) -> str:
-    try:
-        # Split IP into octets and create broadcast address for the subnet
-        ip_parts = ip_addr.split(".")
-        return f"{ip_parts[0]}.{ip_parts[1]}.{ip_parts[2]}.255"
-    except:
-        return "255.255.255.255"
 
 
 class BroadcastProtocol(asyncio.DatagramProtocol):
@@ -73,7 +73,7 @@ class UDPDiscovery(Discovery):
         listen_port: int,
         broadcast_port: int,
         create_peer_handle: Callable[[str, str, str, DeviceCapabilities], PeerHandle],
-        broadcast_interval: int = 2.5,
+        broadcast_interval: float = 2.5,
         discovery_timeout: int = 30,
         device_capabilities: DeviceCapabilities = UNKNOWN_DEVICE_CAPABILITIES,
         allowed_node_ids: Optional[List[str]] = None,
@@ -126,19 +126,23 @@ class UDPDiscovery(Discovery):
         return [peer_handle for peer_handle, _, _, _ in self.known_peers.values()]
 
     async def task_broadcast_presence(self):
+        local_wg_ip = get_local_wg_ip()
         while True:
+            message = json.dumps(
+                {
+                    "type": "discovery",
+                    "node_id": self.node_id,
+                    "grpc_port": self.node_port,
+                    "device_capabilities": self.device_capabilities.to_dict(),
+                    "priority": 1,
+                    "interface_name": "wg0",
+                    "interface_type": "wireguard",
+                }
+            )
+
             for peer_ip, peer_port in PEERS:
-                message = json.dumps(
-                    {
-                        "type": "discovery",
-                        "node_id": self.node_id,
-                        "grpc_port": self.node_port,
-                        "device_capabilities": self.device_capabilities.to_dict(),
-                        "priority": 1,
-                        "interface_name": "wg0",
-                        "interface_type": "wireguard",
-                    }
-                )
+                if peer_ip == local_wg_ip:
+                    continue
 
                 try:
                     (
