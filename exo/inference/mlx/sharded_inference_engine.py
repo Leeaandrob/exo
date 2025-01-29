@@ -1,10 +1,10 @@
 import numpy as np
 import mlx.core as mx
 import mlx.nn as nn
-from mlx_lm.sample_utils import top_p_sampling, make_sampler
+from mlx_lm.sample_utils import make_sampler
 import mlx.optimizers as optim
 from ..inference_engine import InferenceEngine
-from .sharded_utils import load_shard, get_image_from_str
+from .sharded_utils import load_model_shard, resolve_tokenizer
 from .losses import loss_fns
 from ..shard import Shard
 from typing import Dict, Optional, Tuple
@@ -93,7 +93,11 @@ class MLXDynamicShardInferenceEngine(InferenceEngine):
       )
       output_data, inference_state = result
 
-    output_data = np.array(output_data, copy=False)
+    await self._eval_mlx(output_data)
+    output_data = await asyncio.get_running_loop().run_in_executor(
+      self._mlx_thread,
+      lambda: np.array(output_data, copy=False)
+    )
     return output_data, inference_state
 
   async def evaluate(self, request_id: str, shard: Shard, inputs, targets, lengths, loss: str = "length_masked_ce"):
@@ -157,7 +161,11 @@ class MLXDynamicShardInferenceEngine(InferenceEngine):
       return
     model_path = await self.shard_downloader.ensure_shard(shard, self.__class__.__name__)
     if self.shard != shard:
-      model_shard, self.tokenizer = await load_shard(model_path, shard)
+      model_shard = await asyncio.get_running_loop().run_in_executor(self._mlx_thread, lambda: load_model_shard(model_path, shard, lazy=False))
+      if hasattr(model_shard, "tokenizer"):
+        self.tokenizer = model_shard.tokenizer
+      else:
+        self.tokenizer = await resolve_tokenizer(model_path)
       self.shard = shard
       self.model = model_shard
       self.caches = OrderedDict()
