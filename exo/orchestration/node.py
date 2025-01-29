@@ -44,7 +44,7 @@ class Node:
         self.discovery = discovery
         self.shard_downloader = shard_downloader
         self.partitioning_strategy = partitioning_strategy
-        self.peers: List[PeerHandle] = {}
+        self.peers: List[PeerHandle] = []
         self.topology: Topology = Topology()
         self.device_capabilities = UNKNOWN_DEVICE_CAPABILITIES
         self.buffered_token_output: Dict[str, Tuple[List[int], bool]] = {}

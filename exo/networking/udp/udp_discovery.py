@@ -18,9 +18,9 @@ from exo.helpers import (
 )
 
 PEERS = [
-    ("10.0.0.1", 51820),
-    ("10.0.0.2", 51820),
-    ("10.0.0.3", 51820),
+    ("10.0.0.1", 52000),
+    ("10.0.0.2", 52000),
+    ("10.0.0.3", 52000),
 ]
 
 
@@ -48,15 +48,12 @@ class ListenProtocol(asyncio.DatagramProtocol):
 
 
 class BroadcastProtocol(asyncio.DatagramProtocol):
-    def __init__(self, message: str, broadcast_port: int, target_ip: str):
+    def __init__(self, message: str):
         self.message = message
-        self.broadcast_port = broadcast_port
-        self.target_ip = target_ip
 
     def connection_made(self, transport):
-        transport.sendto(
-            self.message.encode("utf-8"), (self.target_ip, self.broadcast_port)
-        )
+        transport.sendto(self.message.encode("utf-8"), None)
+        transport.close()
 
     def error_received(self, exc):
         print(f"Erro recebido no protocolo de broadcast: {exc}")
@@ -81,8 +78,8 @@ class UDPDiscovery(Discovery):
     ):
         self.node_id = node_id
         self.node_port = node_port
-        self.listen_port = listen_port
-        self.broadcast_port = broadcast_port
+        self.listen_port = 52000
+        self.broadcast_port = 52001
         self.create_peer_handle = create_peer_handle
         self.broadcast_interval = broadcast_interval
         self.discovery_timeout = discovery_timeout
@@ -149,9 +146,7 @@ class UDPDiscovery(Discovery):
                         transport,
                         _,
                     ) = await asyncio.get_event_loop().create_datagram_endpoint(
-                        lambda: BroadcastProtocol(
-                            message, self.broadcast_port, peer_ip
-                        ),
+                        lambda pi=peer_ip, pp=peer_port: BroadcastProtocol(message),
                         remote_addr=(peer_ip, peer_port),
                     )
                 except Exception as e:
