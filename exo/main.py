@@ -21,7 +21,7 @@ from exo.topology.ring_memory_weighted_partitioning_strategy import RingMemoryWe
 from exo.api import ChatGPTAPI
 from exo.download.shard_download import ShardDownloader, NoopShardDownloader
 from exo.download.download_progress import RepoProgressEvent
-from exo.download.new_shard_download import new_shard_downloader, has_exo_home_read_access, has_exo_home_write_access, exo_home, seed_models
+from exo.download.new_shard_download import new_shard_downloader, has_exo_home_read_access, has_exo_home_write_access, ensure_exo_home, seed_models
 from exo.helpers import print_yellow_exo, find_available_port, DEBUG, get_system_info, get_or_create_node_id, get_all_ip_addresses_and_interfaces, terminal_link, shutdown
 from exo.inference.shard import Shard
 from exo.inference.inference_engine import get_inference_engine
@@ -79,7 +79,7 @@ parser.add_argument("--discovery-timeout", type=int, default=30, help="Discovery
 parser.add_argument("--discovery-config-path", type=str, default=None, help="Path to discovery config json file")
 parser.add_argument("--wait-for-peers", type=int, default=0, help="Number of peers to wait to connect to before starting")
 parser.add_argument("--chatgpt-api-port", type=int, default=52415, help="ChatGPT API port")
-parser.add_argument("--chatgpt-api-response-timeout", type=int, default=90, help="ChatGPT API response timeout in seconds")
+parser.add_argument("--chatgpt-api-response-timeout", type=int, default=900, help="ChatGPT API response timeout in seconds")
 parser.add_argument("--max-generate-tokens", type=int, default=10000, help="Max tokens to generate in each request")
 parser.add_argument("--inference-engine", type=str, default=None, help="Inference engine to use (mlx, tinygrad, or dummy)")
 parser.add_argument("--disable-tui", action=argparse.BooleanOptionalAction, help="Disable TUI")
@@ -193,33 +193,29 @@ def update_prompt_viz(request_id, opaque_status: str):
       traceback.print_exc()
 node.on_opaque_status.register("update_prompt_viz").on_next(update_prompt_viz)
 
-def preemptively_start_download(request_id: str, opaque_status: str):
+def preemptively_load_shard(request_id: str, opaque_status: str):
   try:
     status = json.loads(opaque_status)
     if status.get("type") != "node_status" or status.get("status") != "start_process_prompt": return
     current_shard = node.get_current_shard(Shard.from_dict(status.get("shard")))
     if DEBUG >= 2: print(f"Preemptively starting download for {current_shard}")
-    asyncio.create_task(shard_downloader.ensure_shard(current_shard, node.inference_engine.__class__.__name__))
+    asyncio.create_task(node.inference_engine.ensure_shard(current_shard))
   except Exception as e:
     if DEBUG >= 2:
       print(f"Failed to preemptively start download: {e}")
       traceback.print_exc()
+node.on_opaque_status.register("preemptively_load_shard").on_next(preemptively_load_shard)
 
-
-node.on_opaque_status.register("start_download").on_next(preemptively_start_download)
-
-last_broadcast_time = 0
-
-
+last_events: dict[str, tuple[float, RepoProgressEvent]] = {}
 def throttled_broadcast(shard: Shard, event: RepoProgressEvent):
-  global last_broadcast_time
+  global last_events
   current_time = time.time()
   if event.status == "not_started": return
-  if event.status == "complete" or current_time - last_broadcast_time >= 0.1:
-    last_broadcast_time = current_time
-    asyncio.create_task(node.broadcast_opaque_status("", json.dumps({"type": "download_progress", "node_id": node.id, "progress": event.to_dict()})))
-
-
+  last_event = last_events.get(shard.model_id)
+  if last_event and last_event[1].status == "complete" and event.status == "complete": return
+  if last_event and last_event[0] == event.status and current_time - last_event[0] < 0.2: return
+  last_events[shard.model_id] = (current_time, event)
+  asyncio.create_task(node.broadcast_opaque_status("", json.dumps({"type": "download_progress", "node_id": node.id, "progress": event.to_dict()})))
 shard_downloader.on_progress.register("broadcast").on_next(throttled_broadcast)
 
 async def run_model_cli(node: Node, model_name: str, prompt: str):
@@ -310,12 +306,8 @@ async def train_model_cli(node: Node, model_name, dataloader, batch_size, iters,
       await hold_outstanding(node)
   await hold_outstanding(node)
 
-
-async def main():
-  loop = asyncio.get_running_loop()
-
-  # Check exo directory permissions
-  home, has_read, has_write = exo_home(), await has_exo_home_read_access(), await has_exo_home_write_access()
+async def check_exo_home():
+  home, has_read, has_write = await ensure_exo_home(), await has_exo_home_read_access(), await has_exo_home_write_access()
   if DEBUG >= 1: print(f"exo home directory: {home}")
   print(f"{has_read=}, {has_write=}")
   if not has_read or not has_write:
@@ -325,6 +317,12 @@ async def main():
           {"❌ No read access" if not has_read else ""}
           {"❌ No write access" if not has_write else ""}
           """)
+
+async def main():
+  loop = asyncio.get_running_loop()
+
+  try: await check_exo_home()
+  except Exception as e: print(f"Error checking exo home directory: {e}")
 
   if not args.models_seed_dir is None:
     try:
