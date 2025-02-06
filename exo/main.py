@@ -103,6 +103,8 @@ shard_downloader: ShardDownloader = new_shard_downloader() if args.inference_eng
 inference_engine_name = args.inference_engine or ("mlx" if system_info == "Apple Silicon Mac" else "tinygrad")
 print(f"Inference engine name after selection: {inference_engine_name}")
 
+os.environ["EXO_INFER_ENGINE"] = inference_engine_name
+
 inference_engine = get_inference_engine(inference_engine_name, shard_downloader)
 print(f"Using inference engine: {inference_engine.__class__.__name__} with shard downloader: {shard_downloader.__class__.__name__}")
 
@@ -149,7 +151,9 @@ elif args.discovery_module == "tailscale":
 elif args.discovery_module == "manual":
   if not args.discovery_config_path:
     raise ValueError(f"--discovery-config-path is required when using manual discovery. Please provide a path to a config json file.")
-  discovery = ManualDiscovery(args.discovery_config_path, args.node_id, create_peer_handle=lambda peer_id, address, description, device_capabilities: GRPCPeerHandle(peer_id, address, description, device_capabilities))
+  discovery = ManualDiscovery(
+    args.discovery_config_path, args.node_id, create_peer_handle=lambda peer_id, address, description, device_capabilities: GRPCPeerHandle(peer_id, address, description, device_capabilities)
+  )
 topology_viz = TopologyViz(chatgpt_api_endpoints=chatgpt_api_endpoints, web_chat_urls=web_chat_urls) if not args.disable_tui else None
 node = Node(
   args.node_id,
@@ -250,23 +254,26 @@ async def run_model_cli(node: Node, model_name: str, prompt: str):
   finally:
     node.on_token.deregister(callback_id)
 
+
 def clean_path(path):
-    """Clean and resolve path"""
-    if path.startswith("Optional("):
-        path = path.strip('Optional("').rstrip('")')
-    return os.path.expanduser(path)
+  """Clean and resolve path"""
+  if path.startswith("Optional("):
+    path = path.strip('Optional("').rstrip('")')
+  return os.path.expanduser(path)
+
 
 async def hold_outstanding(node: Node):
   while node.outstanding_requests:
     await asyncio.sleep(.5)
   return
 
+
 async def run_iter(node: Node, shard: Shard, train: bool, data, batch_size=1):
   losses = []
   tokens = []
   for batch in tqdm(iterate_batches(data, batch_size), total=len(data) // batch_size):
     _, _, lengths = batch
-    losses.append(np.sum(lengths * await node.enqueue_example(shard, *batch, train=train)))
+    losses.append(np.sum(lengths*await node.enqueue_example(shard, *batch, train=train)))
     tokens.append(np.sum(lengths))
   total_tokens = np.sum(tokens)
   total_loss = np.sum(losses) / total_tokens
@@ -333,7 +340,7 @@ async def main():
 
   def restore_cursor():
     if platform.system() != "Windows":
-        os.system("tput cnorm")  # Show cursor
+      os.system("tput cnorm")  # Show cursor
 
   # Restore the cursor when the program exits
   atexit.register(restore_cursor)
@@ -356,8 +363,7 @@ async def main():
     await run_model_cli(node, model_name, args.prompt)
   elif args.command == "eval" or args.command == 'train':
     model_name = args.model_name
-    dataloader = lambda tok: load_dataset(args.data, preprocess=lambda item: tok(item)
-                                                   , loadline=lambda line: json.loads(line).get("text",""))
+    dataloader = lambda tok: load_dataset(args.data, preprocess=lambda item: tok(item), loadline=lambda line: json.loads(line).get("text", ""))
     if args.command == 'eval':
       if not model_name:
         print("Error: Much like a human, I can't evaluate anything without a model")
