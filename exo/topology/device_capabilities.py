@@ -255,7 +255,7 @@ CHIP_FLOPS = {
     "NVIDIA A800 80GB SXM": DeviceFlops(
         fp32=19.5 * TFLOPS, fp16=312.0 * TFLOPS, int8=624.0 * TFLOPS
     ),
-    "NVIDIA GH200 480GB": DeviceFlops(
+    "NVIDIA GH200": DeviceFlops(
         fp32=95.2 * TFLOPS, fp16=190.4 * TFLOPS, int8=380.8 * TFLOPS
     ),
     "NVIDIA H100": DeviceFlops(
