@@ -1,7 +1,7 @@
 import grpc
 import numpy as np
 import asyncio
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Set, Dict, Any
 
 from . import node_service_pb2
 from . import node_service_pb2_grpc
@@ -14,6 +14,7 @@ from exo.helpers import DEBUG
 import json
 import platform
 
+# Se estivermos em Mac/arm64, usar a biblioteca "mlx.core" como alias para "mx", senão usar numpy como alias.
 if platform.system().lower() == "darwin" and platform.machine().lower() == "arm64":
     import mlx.core as mx
 else:
@@ -30,6 +31,7 @@ class GRPCPeerHandle(PeerHandle):
         self._device_capabilities = device_capabilities
         self.channel = None
         self.stub = None
+        # Opções de canal ajustadas para otimização de throughput e keepalive
         self.channel_options = [
             ("grpc.max_metadata_size", 64 * 1024 * 1024),
             ("grpc.max_receive_message_length", 256 * 1024 * 1024),
@@ -44,6 +46,7 @@ class GRPCPeerHandle(PeerHandle):
             ("grpc.optimization_target", "throughput"),
         ]
 
+    # Métodos de identificação e acesso aos atributos
     def id(self) -> str:
         return self._id
 
@@ -56,17 +59,24 @@ class GRPCPeerHandle(PeerHandle):
     def device_capabilities(self) -> DeviceCapabilities:
         return self._device_capabilities
 
+    # Função para criar e conectar o canal de forma assíncrona
     async def connect(self):
         if self.channel is None:
+            if DEBUG >= 2:
+                print(f"Creating new channel for {self._id}@{self.address}")
             self.channel = grpc.aio.insecure_channel(
                 self.address,
                 options=self.channel_options,
                 compression=grpc.Compression.Gzip,
             )
             self.stub = node_service_pb2_grpc.NodeServiceStub(self.channel)
+        # Aguarda o canal ficar pronto
         await self.channel.channel_ready()
+        if DEBUG >= 2:
+            print(f"Channel ready for {self._id}@{self.address}")
 
     async def is_connected(self) -> bool:
+        # Verifica se o canal existe e se o estado é READY
         return (
             self.channel is not None
             and self.channel.get_state() == grpc.ChannelConnectivity.READY
@@ -74,6 +84,8 @@ class GRPCPeerHandle(PeerHandle):
 
     async def disconnect(self):
         if self.channel:
+            if DEBUG >= 2:
+                print(f"Disconnecting channel for {self._id}@{self.address}")
             await self.channel.close()
         self.channel = None
         self.stub = None
@@ -81,12 +93,23 @@ class GRPCPeerHandle(PeerHandle):
     async def _ensure_connected(self):
         if not await self.is_connected():
             try:
-                await asyncio.wait_for(self.connect(), timeout=10.0)
+                await asyncio.wait_for(self.connect(), timeout=20.0)
             except asyncio.TimeoutError:
                 if DEBUG >= 2:
                     print(f"Connection timeout for {self._id}@{self.address}")
                 await self.disconnect()
-                raise
+                raise Exception(
+                    f"Connection could not be established for {self._id}@{self.address}"
+                )
+
+    # Função auxiliar para converter um objeto Shard em seu correspondente objeto proto
+    def _build_shard_proto(self, shard: Shard) -> node_service_pb2.Shard:
+        return node_service_pb2.Shard(
+            model_id=shard.model_id,
+            start_layer=shard.start_layer,
+            end_layer=shard.end_layer,
+            n_layers=shard.n_layers,
+        )
 
     async def health_check(self) -> bool:
         try:
@@ -111,14 +134,10 @@ class GRPCPeerHandle(PeerHandle):
         inference_state: Optional[dict] = None,
         request_id: Optional[str] = None,
     ) -> Optional[np.array]:
+        await self._ensure_connected()
         request = node_service_pb2.PromptRequest(
             prompt=prompt,
-            shard=node_service_pb2.Shard(
-                model_id=shard.model_id,
-                start_layer=shard.start_layer,
-                end_layer=shard.end_layer,
-                n_layers=shard.n_layers,
-            ),
+            shard=self._build_shard_proto(shard),
             request_id=request_id,
             inference_state=None
             if inference_state is None
@@ -133,13 +152,9 @@ class GRPCPeerHandle(PeerHandle):
         inference_state: Optional[dict] = None,
         request_id: Optional[str] = None,
     ) -> Optional[np.array]:
+        await self._ensure_connected()
         request = node_service_pb2.TensorRequest(
-            shard=node_service_pb2.Shard(
-                model_id=shard.model_id,
-                start_layer=shard.start_layer,
-                end_layer=shard.end_layer,
-                n_layers=shard.n_layers,
-            ),
+            shard=self._build_shard_proto(shard),
             tensor=node_service_pb2.Tensor(
                 tensor_data=tensor.tobytes(),
                 shape=tensor.shape,
@@ -167,14 +182,10 @@ class GRPCPeerHandle(PeerHandle):
         length: np.ndarray,
         train: bool,
         request_id: Optional[str] = None,
-    ) -> Optional[np.array]:
+    ) -> Optional[Any]:
+        await self._ensure_connected()
         request = node_service_pb2.ExampleRequest(
-            shard=node_service_pb2.Shard(
-                model_id=shard.model_id,
-                start_layer=shard.start_layer,
-                end_layer=shard.end_layer,
-                n_layers=shard.n_layers,
-            ),
+            shard=self._build_shard_proto(shard),
             example=node_service_pb2.Tensor(
                 tensor_data=example.tobytes(),
                 shape=example.shape,
@@ -206,13 +217,9 @@ class GRPCPeerHandle(PeerHandle):
     async def send_loss(
         self, shard: Shard, tensor: np.ndarray, request_id: Optional[str] = None
     ) -> Optional[np.array]:
+        await self._ensure_connected()
         request = node_service_pb2.TensorRequest(
-            shard=node_service_pb2.Shard(
-                model_id=shard.model_id,
-                start_layer=shard.start_layer,
-                end_layer=shard.end_layer,
-                n_layers=shard.n_layers,
-            ),
+            shard=self._build_shard_proto(shard),
             tensor=node_service_pb2.Tensor(
                 tensor_data=tensor.tobytes(),
                 shape=tensor.shape,
@@ -229,14 +236,15 @@ class GRPCPeerHandle(PeerHandle):
             response.tensor_data, dtype=np.dtype(response.dtype)
         ).reshape(response.shape)
 
-    async def collect_topology(self, visited: set[str], max_depth: int) -> Topology:
+    async def collect_topology(self, visited: Set[str], max_depth: int) -> Topology:
+        await self._ensure_connected()
         request = node_service_pb2.CollectTopologyRequest(
             visited=visited, max_depth=max_depth
         )
         response = await self.stub.CollectTopology(request)
         topology = Topology()
         for node_id, capabilities in response.nodes.items():
-            device_capabilities = DeviceCapabilities(
+            device_cap = DeviceCapabilities(
                 model=capabilities.model,
                 chip=capabilities.chip,
                 memory=capabilities.memory,
@@ -246,7 +254,7 @@ class GRPCPeerHandle(PeerHandle):
                     int8=capabilities.flops.int8,
                 ),
             )
-            topology.update_node(node_id, device_capabilities)
+            topology.update_node(node_id, device_cap)
         for node_id, peer_connections in response.peer_graph.items():
             for conn in peer_connections.connections:
                 topology.add_edge(node_id, conn.to_id, conn.description)
@@ -255,6 +263,7 @@ class GRPCPeerHandle(PeerHandle):
     async def send_result(
         self, request_id: str, result: List[int], is_finished: bool
     ) -> None:
+        await self._ensure_connected()
         tensor = None
         if isinstance(result, np.ndarray):
             tensor = node_service_pb2.Tensor(
@@ -262,29 +271,34 @@ class GRPCPeerHandle(PeerHandle):
                 shape=result.shape,
                 dtype=str(result.dtype),
             )
-            result = []
+            result = []  # Caso o tensor seja enviado, zera a lista de inteiros
         request = node_service_pb2.SendResultRequest(
             request_id=request_id, result=result, tensor=tensor, is_finished=is_finished
         )
         await self.stub.SendResult(request)
 
     async def send_opaque_status(self, request_id: str, status: str) -> None:
+        await self._ensure_connected()
+        if self.stub is None:
+            raise Exception(
+                f"Cannot send opaque status: no connection established for {self.id()}"
+            )
+
         request = node_service_pb2.SendOpaqueStatusRequest(
             request_id=request_id, status=status
         )
         max_retries = 3
-        delay = 1.0  # tempo inicial de espera em segundos
+        delay = 1.0  # tempo inicial de espera (em segundos)
 
         for attempt in range(max_retries):
             try:
                 await asyncio.wait_for(
-                    self.stub.SendOpaqueStatus(request), timeout=15.0
+                    self.stub.SendOpaqueStatus(request), timeout=30.0
                 )
                 if DEBUG >= 2:
                     print(f"send_opaque_status succeeded for request_id {request_id}")
-                return  # Se a chamada foi bem-sucedida, sai do método.
+                return
             except grpc.aio.AioRpcError as e:
-                # Verifica se o erro é transitório (por exemplo, UNAVAILABLE)
                 if e.code() == grpc.StatusCode.UNAVAILABLE:
                     if DEBUG >= 1:
                         print(
@@ -292,7 +306,7 @@ class GRPCPeerHandle(PeerHandle):
                         )
                     await asyncio.sleep(delay)
                     delay *= 2  # Exponential backoff
-                    # Opcional: reconectar o canal para tentar restabelecer a conexão.
+                    # Reconectar o canal
                     await self.disconnect()
                     try:
                         await self.connect()
@@ -302,7 +316,6 @@ class GRPCPeerHandle(PeerHandle):
                                 f"Error reconnecting to {self.id()} at {self.addr()}: {conn_e}"
                             )
                 else:
-                    # Para erros não transitórios, relança a exceção.
                     if DEBUG >= 1:
                         print(f"Non-retryable error for {self.id()}: {e.details()}")
                     raise
@@ -320,7 +333,6 @@ class GRPCPeerHandle(PeerHandle):
                     )
                 raise
 
-        # Se todas as tentativas falharem, opcionalmente pode relançar uma exceção customizada
         raise Exception(
             f"Failed to send opaque status to {self.id()} after {max_retries} attempts."
         )
@@ -328,8 +340,13 @@ class GRPCPeerHandle(PeerHandle):
     def serialize_inference_state(
         self, inference_state: dict
     ) -> node_service_pb2.InferenceState:
+        """
+        Converte o dicionário inference_state para o objeto InferenceState do proto.
+        Valores do tipo mx.array são convertidos para numpy, e se forem listas de arrays,
+        gera um TensorList. Outras informações são serializadas via JSON.
+        """
         proto_inference_state = node_service_pb2.InferenceState()
-        other_data = {}
+        other_data: Dict[str, Any] = {}
         for k, v in inference_state.items():
             if isinstance(v, mx.array):
                 np_array = np.array(v)
@@ -351,7 +368,6 @@ class GRPCPeerHandle(PeerHandle):
                     tensor_list.tensors.append(tensor_data)
                 proto_inference_state.tensor_list_data[k].CopyFrom(tensor_list)
             else:
-                # For non-tensor data, we'll still use JSON
                 other_data[k] = v
         if other_data:
             proto_inference_state.other_data_json = json.dumps(other_data)
