@@ -21,11 +21,15 @@ DEBUG_DISCOVERY = int(os.getenv("DEBUG_DISCOVERY", default="0"))
 VERSION = "0.0.1"
 
 exo_text = r"""
-  _____  _____  
- / _ \ \/ / _ \ 
-|  __/>  < (_) |
- \___/_/\_\___/ 
-    """
+ _____ _____ _       ___    _   _                                 _     _
+|_   _|  ___| |     / _ \  | | | |                               (_)   | |
+  | | | |__ | |    / /_\ \ | |_| |_   _ _ __   ___ _ __ __ _ _ __ _  __| |
+  | | |  __|| |    |  _  | |  _  | | | | '_ \ / _ \ '__/ _` | '__| |/ _` |
+  | | | |___| |____| | | | | | | | |_| | |_) |  __/ | | (_| | |  | | (_| |
+  \_/ \____/\_____/\_| |_/ \_| |_/\__, | .__/ \___|_|  \__, |_|  |_|\__,_|
+                                   __/ | |              __/ |
+                                  |___/|_|             |___/
+"""
 
 # Single shared thread pool for subprocess operations
 subprocess_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="subprocess_worker")
