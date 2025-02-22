@@ -52,6 +52,7 @@ class TorchDynamicShardInferenceEngine(InferenceEngine):
             shard_downloader (ShardDownloader): Object responsible for downloading model shards.
         """
         self.current_shard = None
+        self.shard = self.current_shard
         self.shard_downloader = shard_downloader
         self.model_instance = None
         self.current_request_id = None
@@ -388,7 +389,9 @@ class TorchDynamicShardInferenceEngine(InferenceEngine):
 
             if model_logits.dtype == torch.bfloat16:
                 model_logits = model_logits.float()
-            return model_logits[:, -1].cpu().numpy(), self.inference_state.to_dict()
+            return model_logits[
+                :, -1
+            ].detach().cpu().numpy(), self.inference_state.to_dict()
 
         return await asyncio.get_running_loop().run_in_executor(
             self.executor, infer_task
