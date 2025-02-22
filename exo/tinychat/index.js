@@ -4,7 +4,7 @@ document.addEventListener("alpine:init", () => {
     cstate: {
       time: null,
       messages: [],
-      selectedModel: 'llama-3.2-1b',
+      selectedModel: "llama-3.2-1b",
     },
 
     // historical state
@@ -64,13 +64,15 @@ document.addEventListener("alpine:init", () => {
 
     async fetchInitialModels() {
       try {
-        const response = await fetch(`${window.location.origin}/initial_models`);
+        const response = await fetch(
+          `${window.location.origin}/initial_models`,
+        );
         if (response.ok) {
           const initialModels = await response.json();
           this.models = initialModels;
         }
       } catch (error) {
-        console.error('Error fetching initial models:', error);
+        console.error("Error fetching initial models:", error);
       }
     },
 
@@ -79,18 +81,20 @@ document.addEventListener("alpine:init", () => {
         try {
           await this.populateSelector();
           // Wait 15 seconds before next poll
-          await new Promise(resolve => setTimeout(resolve, 15000));
+          await new Promise((resolve) => setTimeout(resolve, 15000));
         } catch (error) {
-          console.error('Model polling error:', error);
+          console.error("Model polling error:", error);
           // If there's an error, wait before retrying
-          await new Promise(resolve => setTimeout(resolve, 15000));
+          await new Promise((resolve) => setTimeout(resolve, 15000));
         }
       }
     },
 
     async populateSelector() {
       return new Promise((resolve, reject) => {
-        const evtSource = new EventSource(`${window.location.origin}/modelpool`);
+        const evtSource = new EventSource(
+          `${window.location.origin}/modelpool`,
+        );
 
         evtSource.onmessage = (event) => {
           if (event.data === "[DONE]") {
@@ -106,14 +110,14 @@ document.addEventListener("alpine:init", () => {
               this.models[modelName] = {
                 ...this.models[modelName],
                 ...data,
-                loading: false
+                loading: false,
               };
             }
           });
         };
 
         evtSource.onerror = (error) => {
-          console.error('EventSource failed:', error);
+          console.error("EventSource failed:", error);
           evtSource.close();
           reject(error);
         };
@@ -137,15 +141,16 @@ document.addEventListener("alpine:init", () => {
 
     // Utility functions
     formatBytes(bytes) {
-      if (bytes === 0) return '0 B';
+      if (bytes === 0) return "0 B";
       const k = 1024;
-      const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+      const sizes = ["B", "KB", "MB", "GB", "TB"];
       const i = Math.floor(Math.log(bytes) / Math.log(k));
-      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
     },
 
     formatDuration(seconds) {
-      if (seconds === null || seconds === undefined || isNaN(seconds)) return '';
+      if (seconds === null || seconds === undefined || isNaN(seconds))
+        return "";
       const h = Math.floor(seconds / 3600);
       const m = Math.floor((seconds % 3600) / 60);
       const s = Math.floor(seconds % 60);
@@ -170,7 +175,6 @@ document.addEventListener("alpine:init", () => {
         reader.readAsDataURL(file);
       }
     },
-
 
     async handleSend() {
       try {
@@ -198,7 +202,7 @@ document.addEventListener("alpine:init", () => {
         localStorage.setItem("pendingMessage", value);
         this.processMessage(value);
       } catch (error) {
-        console.error('error', error);
+        console.error("error", error);
         this.setError(error);
         this.generating = false;
       }
@@ -213,119 +217,124 @@ document.addEventListener("alpine:init", () => {
         this.tokens_per_second = 0;
 
         // prepare messages for API request
-        let apiMessages = this.cstate.messages.map(msg => {
-          if (msg.content.startsWith('![Uploaded Image]')) {
+        let apiMessages = this.cstate.messages.map((msg) => {
+          if (msg.content.startsWith("![Uploaded Image]")) {
             return {
               role: "user",
               content: [
                 {
                   type: "image_url",
                   image_url: {
-                    url: this.imageUrl
-                  }
+                    url: this.imageUrl,
+                  },
                 },
                 {
                   type: "text",
-                  text: value // Use the actual text the user typed
-                }
-              ]
+                  text: value, // Use the actual text the user typed
+                },
+              ],
             };
           } else {
             return {
               role: msg.role,
-              content: msg.content
+              content: msg.content,
             };
           }
         });
-        
+
         if (this.cstate.selectedModel === "stable-diffusion-2-1-base") {
           // Send a request to the image generation endpoint
-          console.log(apiMessages[apiMessages.length - 1].content)
-          console.log(this.cstate.selectedModel)  
-          console.log(this.endpoint)
+          console.log(apiMessages[apiMessages.length - 1].content);
+          console.log(this.cstate.selectedModel);
+          console.log(this.endpoint);
           const response = await fetch(`${this.endpoint}/image/generations`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
-              "model": 'stable-diffusion-2-1-base',
-              "prompt": apiMessages[apiMessages.length - 1].content,
-              "image_url": this.imageUrl
+              model: "stable-diffusion-2-1-base",
+              prompt: apiMessages[apiMessages.length - 1].content,
+              image_url: this.imageUrl,
             }),
           });
-      
+
           if (!response.ok) {
             throw new Error("Failed to fetch");
           }
           const reader = response.body.getReader();
           let done = false;
           let gottenFirstChunk = false;
-  
+
           while (!done) {
             const { value, done: readerDone } = await reader.read();
             done = readerDone;
             const decoder = new TextDecoder();
-  
+
             if (value) {
               // Assume non-binary data (text) comes first
               const chunk = decoder.decode(value, { stream: true });
               const parsed = JSON.parse(chunk);
-              console.log(parsed)
-  
+              console.log(parsed);
+
               if (parsed.progress) {
                 if (!gottenFirstChunk) {
                   this.cstate.messages.push({ role: "assistant", content: "" });
                   gottenFirstChunk = true;
                 }
-                this.cstate.messages[this.cstate.messages.length - 1].content = parsed.progress;
-              }
-              else if (parsed.images) {
+                this.cstate.messages[this.cstate.messages.length - 1].content =
+                  parsed.progress;
+              } else if (parsed.images) {
                 if (!gottenFirstChunk) {
                   this.cstate.messages.push({ role: "assistant", content: "" });
                   gottenFirstChunk = true;
                 }
                 const imageUrl = parsed.images[0].url;
-                console.log(imageUrl)
-                this.cstate.messages[this.cstate.messages.length - 1].content = `![Generated Image](${imageUrl}?t=${Date.now()})`;
+                console.log(imageUrl);
+                this.cstate.messages[this.cstate.messages.length - 1].content =
+                  `![Generated Image](${imageUrl}?t=${Date.now()})`;
               }
             }
           }
-        }
-        
-        else{        
-          const containsImage = apiMessages.some(msg => Array.isArray(msg.content) && msg.content.some(item => item.type === 'image_url'));
+        } else {
+          const containsImage = apiMessages.some(
+            (msg) =>
+              Array.isArray(msg.content) &&
+              msg.content.some((item) => item.type === "image_url"),
+          );
           if (containsImage) {
             // Map all messages with string content to object with type text
-            apiMessages = apiMessages.map(msg => {
-              if (typeof msg.content === 'string') {
+            apiMessages = apiMessages.map((msg) => {
+              if (typeof msg.content === "string") {
                 return {
                   ...msg,
                   content: [
                     {
                       type: "text",
-                      text: msg.content
-                    }
-                  ]
+                      text: msg.content,
+                    },
+                  ],
                 };
               }
               return msg;
             });
           }
 
-          console.log(apiMessages)
+          console.log(apiMessages);
           //start receiving server sent events
           let gottenFirstChunk = false;
-          for await (
-            const chunk of this.openaiChatCompletion(this.cstate.selectedModel, apiMessages)
-          ) {
+          for await (const chunk of this.openaiChatCompletion(
+            this.cstate.selectedModel,
+            apiMessages,
+          )) {
             if (!gottenFirstChunk) {
               this.cstate.messages.push({ role: "assistant", content: "" });
               gottenFirstChunk = true;
             }
 
             // add chunk to the last message
-            this.cstate.messages[this.cstate.messages.length - 1].content += chunk;
+            this.cstate.messages[this.cstate.messages.length - 1].content +=
+              chunk;
 
             // calculate performance tracking
             tokens += 1;
@@ -343,20 +352,27 @@ document.addEventListener("alpine:init", () => {
         }
         // Clean the cstate before adding it to histories
         const cleanedCstate = JSON.parse(JSON.stringify(this.cstate));
-        cleanedCstate.messages = cleanedCstate.messages.map(msg => {
+        cleanedCstate.messages = cleanedCstate.messages.map((msg) => {
           if (Array.isArray(msg.content)) {
             return {
               ...msg,
-              content: msg.content.map(item =>
-                item.type === 'image_url' ? { type: 'image_url', image_url: { url: '[IMAGE_PLACEHOLDER]' } } : item
-              )
+              content: msg.content.map((item) =>
+                item.type === "image_url"
+                  ? {
+                      type: "image_url",
+                      image_url: { url: "[IMAGE_PLACEHOLDER]" },
+                    }
+                  : item,
+              ),
             };
           }
           return msg;
         });
 
         // Update the state in histories or add it if it doesn't exist
-        const index = this.histories.findIndex((cstate) => cstate.time === cleanedCstate.time);
+        const index = this.histories.findIndex(
+          (cstate) => cstate.time === cleanedCstate.time,
+        );
         cleanedCstate.time = Date.now();
         if (index !== -1) {
           // Update the existing entry
@@ -365,7 +381,7 @@ document.addEventListener("alpine:init", () => {
           // Add a new entry
           this.histories.push(cleanedCstate);
         }
-        console.log(this.histories)
+        console.log(this.histories);
         // update in local storage
         try {
           localStorage.setItem("histories", JSON.stringify(this.histories));
@@ -373,7 +389,7 @@ document.addEventListener("alpine:init", () => {
           console.error("Failed to save histories to localStorage:", error);
         }
       } catch (error) {
-        console.error('error', error);
+        console.error("error", error);
         this.setError(error);
       } finally {
         this.generating = false;
@@ -393,9 +409,12 @@ document.addEventListener("alpine:init", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages }),
-      }).then((response) => response.json()).then((data) => {
-        this.total_tokens = data.length;
-      }).catch(console.error);
+      })
+        .then((response) => response.json())
+        .then((data) => {
+          this.total_tokens = data.length;
+        })
+        .catch(console.error);
     },
 
     async *openaiChatCompletion(model, messages) {
@@ -405,29 +424,34 @@ document.addEventListener("alpine:init", () => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          "model": model,
-          "messages": messages,
-          "stream": true,
+          model: model,
+          messages: messages,
+          stream: true,
         }),
       });
       if (!response.ok) {
-        const errorResBody = await response.json()
+        const errorResBody = await response.json();
         if (errorResBody?.detail) {
-          throw new Error(`Failed to fetch completions: ${errorResBody.detail}`);
+          throw new Error(
+            `Failed to fetch completions: ${errorResBody.detail}`,
+          );
         } else {
           throw new Error("Failed to fetch completions: Unknown error");
         }
       }
 
-      const reader = response.body.pipeThrough(new TextDecoderStream())
-        .pipeThrough(new EventSourceParserStream()).getReader();
-      
+      const reader = response.body
+        .pipeThrough(new TextDecoderStream())
+        .pipeThrough(new EventSourceParserStream())
+        .getReader();
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        
+
         if (value.type === "event") {
           const json = JSON.parse(value.data);
+          console.info(11111, json);
           if (json.choices) {
             const choice = json.choices[0];
             if (choice.finish_reason === "stop") break;
@@ -444,33 +468,44 @@ document.addEventListener("alpine:init", () => {
           const data = await response.json();
           const progressArray = Object.values(data);
           if (progressArray.length > 0) {
-            this.downloadProgress = progressArray.map(progress => {
+            this.downloadProgress = progressArray.map((progress) => {
               // Check if download is complete
               if (progress.status === "complete") {
                 return {
                   ...progress,
                   isComplete: true,
-                  percentage: 100
+                  percentage: 100,
                 };
               } else if (progress.status === "failed") {
                 return {
                   ...progress,
                   isComplete: false,
-                  errorMessage: "Download failed"
+                  errorMessage: "Download failed",
                 };
               } else {
                 return {
                   ...progress,
                   isComplete: false,
-                  downloaded_bytes_display: this.formatBytes(progress.downloaded_bytes),
+                  downloaded_bytes_display: this.formatBytes(
+                    progress.downloaded_bytes,
+                  ),
                   total_bytes_display: this.formatBytes(progress.total_bytes),
-                  overall_speed_display: progress.overall_speed ? this.formatBytes(progress.overall_speed) + '/s' : '',
-                  overall_eta_display: progress.overall_eta ? this.formatDuration(progress.overall_eta) : '',
-                  percentage: ((progress.downloaded_bytes / progress.total_bytes) * 100).toFixed(2)
+                  overall_speed_display: progress.overall_speed
+                    ? this.formatBytes(progress.overall_speed) + "/s"
+                    : "",
+                  overall_eta_display: progress.overall_eta
+                    ? this.formatDuration(progress.overall_eta)
+                    : "",
+                  percentage: (
+                    (progress.downloaded_bytes / progress.total_bytes) *
+                    100
+                  ).toFixed(2),
                 };
               }
             });
-            const allComplete = this.downloadProgress.every(progress => progress.isComplete);
+            const allComplete = this.downloadProgress.every(
+              (progress) => progress.isComplete,
+            );
             if (allComplete) {
               // Check for pendingMessage
               const savedMessage = localStorage.getItem("pendingMessage");
@@ -511,7 +546,7 @@ document.addEventListener("alpine:init", () => {
     setError(error) {
       this.errorMessage = {
         basic: error.message || "An unknown error occurred",
-        stack: error.stack || ""
+        stack: error.stack || "",
       };
       this.errorExpanded = false;
 
@@ -529,26 +564,34 @@ document.addEventListener("alpine:init", () => {
 
     async deleteModel(modelName, model) {
       const downloadedSize = model.total_downloaded || 0;
-      const sizeMessage = downloadedSize > 0 ?
-        `This will free up ${this.formatBytes(downloadedSize)} of space.` :
-        'This will remove any partially downloaded files.';
+      const sizeMessage =
+        downloadedSize > 0
+          ? `This will free up ${this.formatBytes(downloadedSize)} of space.`
+          : "This will remove any partially downloaded files.";
 
-      if (!confirm(`Are you sure you want to delete ${model.name}? ${sizeMessage}`)) {
+      if (
+        !confirm(
+          `Are you sure you want to delete ${model.name}? ${sizeMessage}`,
+        )
+      ) {
         return;
       }
 
       try {
-        const response = await fetch(`${window.location.origin}/models/${modelName}`, {
-          method: 'DELETE',
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        });
+        const response = await fetch(
+          `${window.location.origin}/models/${modelName}`,
+          {
+            method: "DELETE",
+            headers: {
+              "Content-Type": "application/json",
+            },
+          },
+        );
 
         const data = await response.json();
 
         if (!response.ok) {
-          throw new Error(data.detail || 'Failed to delete model');
+          throw new Error(data.detail || "Failed to delete model");
         }
 
         // Update the model status in the UI
@@ -560,8 +603,10 @@ document.addEventListener("alpine:init", () => {
 
         // If this was the selected model, switch to a different one
         if (this.cstate.selectedModel === modelName) {
-          const availableModel = Object.keys(this.models).find(key => this.models[key].downloaded);
-          this.cstate.selectedModel = availableModel || 'llama-3.2-1b';
+          const availableModel = Object.keys(this.models).find(
+            (key) => this.models[key].downloaded,
+          );
+          this.cstate.selectedModel = availableModel || "llama-3.2-1b";
         }
 
         // Show success message
@@ -570,39 +615,38 @@ document.addEventListener("alpine:init", () => {
         // Refresh the model list
         await this.populateSelector();
       } catch (error) {
-        console.error('Error deleting model:', error);
-        this.setError(error.message || 'Failed to delete model');
+        console.error("Error deleting model:", error);
+        this.setError(error.message || "Failed to delete model");
       }
     },
 
     async handleDownload(modelName) {
       try {
         const response = await fetch(`${window.location.origin}/download`, {
-          method: 'POST',
+          method: "POST",
           headers: {
-            'Content-Type': 'application/json'
+            "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            model: modelName
-          })
+            model: modelName,
+          }),
         });
 
         const data = await response.json();
 
         if (!response.ok) {
-          throw new Error(data.error || 'Failed to start download');
+          throw new Error(data.error || "Failed to start download");
         }
 
         // Update the model's status immediately when download starts
         if (this.models[modelName]) {
           this.models[modelName] = {
             ...this.models[modelName],
-            loading: true
+            loading: true,
           };
         }
-
       } catch (error) {
-        console.error('Error starting download:', error);
+        console.error("Error starting download:", error);
         this.setError(error);
       }
     },
@@ -610,10 +654,10 @@ document.addEventListener("alpine:init", () => {
     async fetchTopology() {
       try {
         const response = await fetch(`${this.endpoint}/topology`);
-        if (!response.ok) throw new Error('Failed to fetch topology');
+        if (!response.ok) throw new Error("Failed to fetch topology");
         return await response.json();
       } catch (error) {
-        console.error('Topology fetch error:', error);
+        console.error("Topology fetch error:", error);
         return null;
       }
     },
@@ -626,7 +670,7 @@ document.addEventListener("alpine:init", () => {
       this.topologyInterval = setInterval(() => this.updateTopology(), 5000);
 
       // Cleanup on page unload
-      window.addEventListener('beforeunload', () => {
+      window.addEventListener("beforeunload", () => {
         if (this.topologyInterval) {
           clearInterval(this.topologyInterval);
         }
@@ -638,28 +682,32 @@ document.addEventListener("alpine:init", () => {
       if (!topologyData) return;
 
       const vizElement = this.$refs.topologyViz;
-      vizElement.innerHTML = ''; // Clear existing visualization
+      vizElement.innerHTML = ""; // Clear existing visualization
 
       // Helper function to truncate node ID
       const truncateNodeId = (id) => id.substring(0, 8);
 
       // Create nodes from object
       Object.entries(topologyData.nodes).forEach(([nodeId, node]) => {
-        const nodeElement = document.createElement('div');
-        nodeElement.className = 'topology-node';
+        const nodeElement = document.createElement("div");
+        nodeElement.className = "topology-node";
 
         // Get peer connections for this node
         const peerConnections = topologyData.peer_graph[nodeId] || [];
-        const peerConnectionsHtml = peerConnections.map(peer => `
+        const peerConnectionsHtml = peerConnections
+          .map(
+            (peer) => `
           <div class="peer-connection">
             <i class="fas fa-arrow-right"></i>
             <span>To ${truncateNodeId(peer.to_id)}: ${peer.description}</span>
           </div>
-        `).join('');
+        `,
+          )
+          .join("");
 
         nodeElement.innerHTML = `
           <div class="node-info">
-            <span class="status ${nodeId === topologyData.active_node_id ? 'active' : 'inactive'}"></span>
+            <span class="status ${nodeId === topologyData.active_node_id ? "active" : "inactive"}"></span>
             <span>${node.model} [${truncateNodeId(nodeId)}]</span>
           </div>
           <div class="node-details">
@@ -677,7 +725,7 @@ document.addEventListener("alpine:init", () => {
 
     // Add these helper methods
     countDownloadedModels(models) {
-      return Object.values(models).filter(model => model.downloaded).length;
+      return Object.values(models).filter((model) => model.downloaded).length;
     },
 
     getGroupCounts(groupModels) {
@@ -689,23 +737,25 @@ document.addEventListener("alpine:init", () => {
     // Update the existing groupModelsByPrefix method to include counts
     groupModelsByPrefix(models) {
       const groups = {};
-      const filteredModels = this.showDownloadedOnly ?
-        Object.fromEntries(Object.entries(models).filter(([, model]) => model.downloaded)) :
-        models;
+      const filteredModels = this.showDownloadedOnly
+        ? Object.fromEntries(
+            Object.entries(models).filter(([, model]) => model.downloaded),
+          )
+        : models;
 
       Object.entries(filteredModels).forEach(([key, model]) => {
-        const parts = key.split('-');
+        const parts = key.split("-");
         const mainPrefix = parts[0].toUpperCase();
-        
+
         let subPrefix;
         if (parts.length === 2) {
           subPrefix = parts[1].toUpperCase();
         } else if (parts.length > 2) {
           subPrefix = parts[1].toUpperCase();
         } else {
-          subPrefix = 'OTHER';
+          subPrefix = "OTHER";
         }
-        
+
         if (!groups[mainPrefix]) {
           groups[mainPrefix] = {};
         }
@@ -730,13 +780,15 @@ document.addEventListener("alpine:init", () => {
 });
 
 const { markedHighlight } = globalThis.markedHighlight;
-marked.use(markedHighlight({
-  langPrefix: "hljs language-",
-  highlight(code, lang, _info) {
-    const language = hljs.getLanguage(lang) ? lang : "plaintext";
-    return hljs.highlight(code, { language }).value;
-  },
-}));
+marked.use(
+  markedHighlight({
+    langPrefix: "hljs language-",
+    highlight(code, lang, _info) {
+      const language = hljs.getLanguage(lang) ? lang : "plaintext";
+      return hljs.highlight(code, { language }).value;
+    },
+  }),
+);
 
 // **** eventsource-parser ****
 class EventSourceParserStream extends TransformStream {

@@ -202,6 +202,74 @@ async def download_file_with_retry(
         except Exception as e:
             if isinstance(e, FileNotFoundError) or attempt == n_attempts - 1:
                 raise e
+            print(
+                f"Download error on attempt {attempt}/{n_attempts} for {repo_id=} {revision=} {path=} {target_dir=}"
+            )
+            traceback.print_exc()
+            await asyncio.sleep(min(8, 0.1 * (2**attempt)))
+
+
+async def _download_file(
+    repo_id: str,
+    revision: str,
+    path: str,
+    target_dir: Path,
+    on_progress: Callable[[int, int], None] = lambda _, __: None,
+) -> Path:
+    if await aios.path.exists(target_dir / path):
+        return target_dir / path
+    await aios.makedirs((target_dir / path).parent, exist_ok=True)
+    length, remote_hash = await file_meta(repo_id, revision, path)
+    partial_path = target_dir / f"{path}.partial"
+    resume_byte_pos = (
+        (await aios.stat(partial_path)).st_size
+        if (await aios.path.exists(partial_path))
+        else None
+    )
+    if resume_byte_pos != length:
+        url = urljoin(f"{get_hf_endpoint()}/{repo_id}/resolve/{revision}/", path)
+        headers = await get_auth_headers()
+        async with aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(
+                total=1800, connect=60, sock_read=1800, sock_connect=60
+            )
+        ) as session:
+            async with session.head(url, headers=headers) as r:
+                content_length = int(
+                    r.headers.get("x-linked-size")
+                    or r.headers.get("content-length")
+                    or 0
+                )
+                etag = (
+                    r.headers.get("X-Linked-ETag")
+                    or r.headers.get("ETag")
+                    or r.headers.get("Etag")
+                )
+                assert content_length > 0, f"No content length for {url}"
+                assert etag is not None, f"No remote hash for {url}"
+                if (etag[0] == '"' and etag[-1] == '"') or (
+                    etag[0] == "'" and etag[-1] == "'"
+                ):
+                    etag = etag[1:-1]
+                return content_length, etag
+
+
+async def download_file_with_retry(
+    repo_id: str,
+    revision: str,
+    path: str,
+    target_dir: Path,
+    on_progress: Callable[[int, int], None] = lambda _, __: None,
+) -> Path:
+    n_attempts = 30
+    for attempt in range(n_attempts):
+        try:
+            return await _download_file(
+                repo_id, revision, path, target_dir, on_progress
+            )
+        except Exception as e:
+            if isinstance(e, FileNotFoundError) or attempt == n_attempts - 1:
+                raise e
             await asyncio.sleep(min(8, 0.1 * (2**attempt)))
 
 

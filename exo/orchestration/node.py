@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import json
 import asyncio
@@ -127,7 +128,10 @@ class Node:
             supported_engine_names.append("mlx")
             supported_engine_names.append("tinygrad")
         else:
-            supported_engine_names.append("tinygrad")
+            supported_engine_names.append(
+                os.environ.get("EXO_INFER_ENGINE", "tinygrad")
+            )
+
         return supported_engine_names
 
     async def broadcast_supported_engines(self, supported_engines_names: List[str]):
@@ -799,37 +803,16 @@ class Node:
                     print("Max depth reached. Skipping...")
                 continue
 
-            # Implementação do retry
-            max_retries = 3
-            delay = 1.0  # segundos de espera inicial
-            other_topology = None
-            for attempt in range(max_retries):
-                try:
-                    other_topology = await asyncio.wait_for(
-                        peer.collect_topology(visited, max_depth=max_depth - 1),
-                        timeout=5.0,
-                    )
-                    if DEBUG >= 2:
-                        print(f"Collected topology from: {peer.id()}: {other_topology}")
-                    break  # Sai do loop se a coleta for bem-sucedida
-                except asyncio.TimeoutError:
-                    print(
-                        f"Timeout collecting topology from {peer.id()}, attempt {attempt + 1} of {max_retries}"
-                    )
-                    if attempt < max_retries - 1:
-                        await asyncio.sleep(delay)
-                        delay *= 2  # Exponential backoff
-                    else:
-                        print(
-                            f"Failed to collect topology from {peer.id()} after {max_retries} attempts."
-                        )
-                except Exception as e:
-                    print(f"Error collecting topology from {peer.id()}: {e}")
-                    traceback.print_exc()
-                    break  # Se ocorrer outra exceção, sai do loop
-
-            if other_topology is not None:
+            try:
+                other_topology = await asyncio.wait_for(
+                    peer.collect_topology(visited, max_depth=max_depth - 1), timeout=5.0
+                )
+                if DEBUG >= 2:
+                    print(f"Collected topology from: {peer.id()}: {other_topology}")
                 next_topology.merge(peer.id(), other_topology)
+            except Exception as e:
+                print(f"Error collecting topology from {peer.id()}: {e}")
+                traceback.print_exc()
 
         next_topology.active_node_id = self.topology.active_node_id
         self.topology = next_topology

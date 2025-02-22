@@ -2,9 +2,7 @@ import uuid
 import time
 import asyncio
 import json
-import os
 from pathlib import Path
-from transformers import AutoTokenizer
 from typing import List, Literal, Union, Dict, Optional
 from aiohttp import web
 import aiohttp_cors
@@ -90,7 +88,6 @@ def generate_completion(
     finish_reason: Union[Literal["length", "stop"], None],
     object_type: Literal["chat.completion", "text_completion"],
 ) -> dict:
-    print("---->", chat_request)
     completion = {
         "id": f"chatcmpl-{request_id}",
         "object": object_type,
