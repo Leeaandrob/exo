@@ -309,7 +309,7 @@ async def _download_file(
                 ),
             ) as r:
                 if r.status == 404:
-                    raise FileNotFoundError(f"File not found: {url}")
+                    print(FileNotFoundError(f"File not found: {url}"))
                 assert r.status in [
                     200,
                     206,
