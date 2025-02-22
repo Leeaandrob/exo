@@ -39,7 +39,7 @@ model_cards = {
         "repo": {
             "MLXDynamicShardInferenceEngine": "mlx-community/Llama-3.2-3B-Instruct-8bit",
             "TinygradDynamicShardInferenceEngine": "unsloth/Llama-3.2-3B-Instruct",
-            "TorchDynamicShardInferenceEngine": "unsloth/Llama-3.2-3B-Instruct",
+            "TorchDynamicShardInferenceEngine": "fanherodev/Llama-3.2-3B-Instruct",
         },
     },
     "llama-3.2-3b-bf16": {
@@ -47,7 +47,7 @@ model_cards = {
         "repo": {
             "MLXDynamicShardInferenceEngine": "mlx-community/Llama-3.2-3B-Instruct",
             "TinygradDynamicShardInferenceEngine": "unsloth/Llama-3.2-3B-Instruct",
-            "TorchDynamicShardInferenceEngine": "unsloth/Llama-3.2-3B-Instruct",
+            "TorchDynamicShardInferenceEngine": "fanherodev/Llama-3.2-3B-Instruct",
         },
     },
     "llama-3.1-8b": {
