@@ -14,7 +14,7 @@ model_cards = {
         "layers": 16,
         "repo": {
             "MLXDynamicShardInferenceEngine": "mlx-community/Llama-3.2-1B-Instruct-4bit",
-            "TinygradDynamicShardInferenceEngine": "unsloth/Llama-3.2-1B-Instruct",
+            "TinygradDynamicShardInferenceEngine": "fanherodev/Llama-3.2-1B-Instruct",
             "TorchDynamicShardInferenceEngine": "fanherodev/Llama-3.2-1B-Instruct",
         },
     },
@@ -22,15 +22,15 @@ model_cards = {
         "layers": 16,
         "repo": {
             "MLXDynamicShardInferenceEngine": "mlx-community/Llama-3.2-1B-Instruct-8bit",
-            "TinygradDynamicShardInferenceEngine": "unsloth/Llama-3.2-1B-Instruct",
-            "TorchDynamicShardInferenceEngine": "unsloth/Llama-3.2-1B-Instruct",
+            "TinygradDynamicShardInferenceEngine": "fanherodev/Llama-3.2-1B-Instruct",
+            "TorchDynamicShardInferenceEngine": "fanherodev/Llama-3.2-1B-Instruct",
         },
     },
     "llama-3.2-3b": {
         "layers": 28,
         "repo": {
             "MLXDynamicShardInferenceEngine": "mlx-community/Llama-3.2-3B-Instruct-4bit",
-            "TinygradDynamicShardInferenceEngine": "unsloth/Llama-3.2-3B-Instruct",
+            "TinygradDynamicShardInferenceEngine": "fanherodev/Llama-3.2-3B-Instruct",
             "TorchDynamicShardInferenceEngine": "fanherodev/Llama-3.2-3B-Instruct",
         },
     },
@@ -38,7 +38,7 @@ model_cards = {
         "layers": 28,
         "repo": {
             "MLXDynamicShardInferenceEngine": "mlx-community/Llama-3.2-3B-Instruct-8bit",
-            "TinygradDynamicShardInferenceEngine": "unsloth/Llama-3.2-3B-Instruct",
+            "TinygradDynamicShardInferenceEngine": "fanherodev/Llama-3.2-3B-Instruct",
             "TorchDynamicShardInferenceEngine": "fanherodev/Llama-3.2-3B-Instruct",
         },
     },
@@ -46,7 +46,7 @@ model_cards = {
         "layers": 28,
         "repo": {
             "MLXDynamicShardInferenceEngine": "mlx-community/Llama-3.2-3B-Instruct",
-            "TinygradDynamicShardInferenceEngine": "unsloth/Llama-3.2-3B-Instruct",
+            "TinygradDynamicShardInferenceEngine": "fanherodev/Llama-3.2-3B-Instruct",
             "TorchDynamicShardInferenceEngine": "fanherodev/Llama-3.2-3B-Instruct",
         },
     },
