@@ -178,3 +178,4 @@ cython_debug/
 exo/tinychat/images/*.png
 .vscode/
 build/
+env*

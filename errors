@@ -1,0 +1,18 @@
+File not found: https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/model.safetensors.index.json
+Error getting weight map for shard.model_id='qwen-2.5-0.5b' and inference engine TorchDynamicShardInferenceEngine
+Traceback (most recent call last):
+  File "/Users/leandrobarbosa/Projects/Tela/exos-ecosystem/exo/exo/download/new_shard_download.py", line 397, in resolve_allow_patterns
+    weight_map = await get_weight_map(
+                 ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/leandrobarbosa/Projects/Tela/exos-ecosystem/exo/exo/download/new_shard_download.py", line 385, in get_weight_map
+    index_file = await download_file_with_retry(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/leandrobarbosa/Projects/Tela/exos-ecosystem/exo/exo/download/new_shard_download.py", line 272, in download_file_with_retry
+    raise e
+  File "/Users/leandrobarbosa/Projects/Tela/exos-ecosystem/exo/exo/download/new_shard_download.py", line 267, in download_file_with_retry
+    return await _download_file(
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/leandrobarbosa/Projects/Tela/exos-ecosystem/exo/exo/download/new_shard_download.py", line 313, in _download_file
+    assert r.status in [
+           ^^^^^^^^^^^^^
+AssertionError: Failed to download model.safetensors.index.json from https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/model.safetensors.index.json: 404
