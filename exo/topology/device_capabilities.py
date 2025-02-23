@@ -1,16 +1,20 @@
-from typing import Any
-from pydantic import BaseModel
-from exo import DEBUG
-import subprocess
 import psutil
 import asyncio
-from exo.helpers import get_mac_system_info, subprocess_pool
+from typing import Any, Optional
+
+from pydantic import BaseModel
+
+from exo import DEBUG
+from exo.helpers import (
+    get_mac_system_info,
+)
 
 TFLOPS = 1.00
 
 
 class DeviceFlops(BaseModel):
-    # units of TFLOPS
+    """Represents the device's floating-point operations per second (FLOPS) capabilities."""
+
     fp32: float
     fp16: float
     int8: float
@@ -23,6 +27,8 @@ class DeviceFlops(BaseModel):
 
 
 class DeviceCapabilities(BaseModel):
+    """Represents the overall capabilities of the device, including model, chip, memory, and FLOPS."""
+
     model: str
     chip: str
     memory: int
@@ -330,7 +336,90 @@ CHIP_FLOPS.update({f"{key} LAPTOP GPU": value for key, value in CHIP_FLOPS.items
 CHIP_FLOPS.update({f"{key} Laptop GPU": value for key, value in CHIP_FLOPS.items()})
 
 
+async def calculate_tflops(chip_name: str) -> Optional[DeviceFlops]:
+    """
+    Attempts to dynamically calculate TFLOPS for the given chip using a matrix multiplication benchmark.
+    Currently supports NVIDIA GPUs with CUDA using the optional `cupy` library.
+
+    Args:
+        chip_name (str): The name of the chip (e.g., "NVIDIA A10").
+
+    Returns:
+        Optional[DeviceFlops]: A DeviceFlops object with calculated fp32, fp16, and int8 TFLOPS if successful,
+                              otherwise None.
+    """
+    if "NVIDIA" in chip_name.upper():
+        try:
+            import cupy as cp
+            import time
+
+            # Theoretical max TFLOPS for known GPUs
+            theoretical_max = {
+                "NVIDIA A10": {"fp32": 31.2, "fp16": 62.5, "int8": 125.0},
+                # Add other known GPUs here
+            }
+
+            # Check if the GPU has known theoretical max values
+            if chip_name in theoretical_max:
+                return DeviceFlops(
+                    fp32=theoretical_max[chip_name]["fp32"],
+                    fp16=theoretical_max[chip_name]["fp16"],
+                    int8=theoretical_max[chip_name]["int8"],
+                )
+
+            # If not known, proceed with dynamic calculation for fp32
+            matrix_size = 16384  # Further increased size for better utilization
+            iterations = 100  # More iterations for accurate timing
+
+            # Create large random matrices on the GPU
+            a = cp.random.rand(matrix_size, matrix_size, dtype=cp.float32)
+            b = cp.random.rand(matrix_size, matrix_size, dtype=cp.float32)
+
+            # Warm-up the GPU with more iterations
+            for _ in range(20):
+                cp.dot(a, b)
+            cp.cuda.Stream.null.synchronize()  # Ensure warm-up completes
+
+            # Measure execution time with high-precision timing
+            start = time.perf_counter()
+            for _ in range(iterations):
+                cp.dot(a, b)
+            cp.cuda.Stream.null.synchronize()  # Ensure all operations finish
+            end = time.perf_counter()
+
+            # Calculate FLOPS
+            flops_per_dot = 2 * matrix_size**3
+            total_flops = iterations * flops_per_dot
+            time_taken = end - start
+            fp32_tflops = total_flops / (time_taken * 1e12)
+
+            # Estimate fp16 and int8 based on fp32 (conservative multipliers)
+            fp16_tflops = fp32_tflops * 2
+            int8_tflops = fp32_tflops * 4
+
+            if DEBUG >= 2:
+                print(
+                    f"Dynamic TFLOPS: fp32={fp32_tflops:.2f}, time_taken={time_taken:.4f}s"
+                )
+            return DeviceFlops(fp32=fp32_tflops, fp16=fp16_tflops, int8=int8_tflops)
+        except ImportError:
+            if DEBUG >= 2:
+                print("cupy is not installed. Falling back to static TFLOPS values.")
+        except Exception as e:
+            if DEBUG >= 2:
+                print(f"Error during dynamic TFLOPS calculation: {e}")
+    return None
+
+
 async def device_capabilities() -> DeviceCapabilities:
+    """
+    Determines the device's capabilities, including model, chip, memory, and FLOPS.
+    Attempts dynamic TFLOPS calculation for supported devices (e.g., NVIDIA GPUs with CUDA),
+    otherwise falls back to static values or defaults to zero.
+
+    Returns:
+        DeviceCapabilities: An object containing the device's model, chip, memory, and FLOPS.
+    """
     if psutil.MACOS:
         return await mac_device_capabilities()
     elif psutil.LINUX:
@@ -341,53 +430,68 @@ async def device_capabilities() -> DeviceCapabilities:
         return DeviceCapabilities(
             model="Unknown Device",
             chip="Unknown Chip",
-            memory=psutil.virtual_memory().total // 2**20,
+            memory=psutil.virtual_memory().total // 2**20,  # Convert bytes to MB
             flops=DeviceFlops(fp32=0, fp16=0, int8=0),
         )
 
 
 async def mac_device_capabilities() -> DeviceCapabilities:
-    model_id, chip_id, memory = await get_mac_system_info()
+    """
+    Retrieves device capabilities for macOS systems.
+    Uses static FLOPS values for Apple Silicon chips since dynamic calculation is not supported.
 
-    return DeviceCapabilities(
-        model=model_id,
-        chip=chip_id,
-        memory=memory,
-        flops=CHIP_FLOPS.get(chip_id, DeviceFlops(fp32=0, fp16=0, int8=0)),
-    )
+    Returns:
+        DeviceCapabilities: The capabilities of the macOS device.
+    """
+    (
+        model_id,
+        chip_id,
+        memory,
+    ) = await get_mac_system_info()  # Assumes this returns model, chip, and memory
+    flops = CHIP_FLOPS.get(chip_id, DeviceFlops(fp32=0, fp16=0, int8=0))
+    return DeviceCapabilities(model=model_id, chip=chip_id, memory=memory, flops=flops)
 
 
 async def linux_device_capabilities() -> DeviceCapabilities:
-    import psutil
-    from tinygrad import Device
+    """
+    Retrieves device capabilities for Linux systems.
+    Attempts dynamic TFLOPS calculation for NVIDIA GPUs with CUDA, otherwise uses static values.
 
-    if DEBUG >= 2:
-        print(f"tinygrad {Device.DEFAULT=}")
-    if Device.DEFAULT == "CUDA" or Device.DEFAULT == "NV" or Device.DEFAULT == "GPU":
+    Returns:
+        DeviceCapabilities: The capabilities of the Linux device.
+    """
+    import tinygrad  # Assuming tinygrad is used to detect the default device
+
+    device_default = tinygrad.Device.DEFAULT
+
+    if device_default in ["CUDA", "NV", "GPU"]:
         import pynvml
 
         pynvml.nvmlInit()
         handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-        gpu_raw_name = pynvml.nvmlDeviceGetName(handle).upper()
+        gpu_raw_name = pynvml.nvmlDeviceGetName(handle).decode("utf-8").upper()
         gpu_name = (
             gpu_raw_name.rsplit(" ", 1)[0]
             if gpu_raw_name.endswith("GB")
             else gpu_raw_name
         )
         gpu_memory_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-
-        if DEBUG >= 2:
-            print(f"NVIDIA device {gpu_name=} {gpu_memory_info=}")
-
         pynvml.nvmlShutdown()
+
+        # Try dynamic TFLOPS calculation
+        dynamic_flops = await calculate_tflops(gpu_name)
+        if dynamic_flops:
+            flops = dynamic_flops
+        else:
+            flops = CHIP_FLOPS.get(gpu_name, DeviceFlops(fp32=0, fp16=0, int8=0))
 
         return DeviceCapabilities(
             model=f"Linux Box ({gpu_name})",
             chip=gpu_name,
-            memory=gpu_memory_info.total // 2**20,
-            flops=CHIP_FLOPS.get(gpu_name, DeviceFlops(fp32=0, fp16=0, int8=0)),
+            memory=gpu_memory_info.total // 2**20,  # Convert bytes to MB
+            flops=flops,
         )
-    elif Device.DEFAULT == "AMD":
+    elif device_default == "AMD":
         # For AMD GPUs, pyrsmi is the way (Official python package for rocm-smi)
         from pyrsmi import rocml
 
@@ -406,64 +510,57 @@ async def linux_device_capabilities() -> DeviceCapabilities:
             memory=gpu_memory_info // 2**20,
             flops=DeviceFlops(fp32=0, fp16=0, int8=0),
         )
-
     else:
+        # Non-NVIDIA or unsupported devices
         return DeviceCapabilities(
-            model=f"Linux Box (Device: {Device.DEFAULT})",
-            chip=f"Unknown Chip (Device: {Device.DEFAULT})",
+            model=f"Linux Box (Device: {device_default})",
+            chip=f"Unknown Chip (Device: {device_default})",
             memory=psutil.virtual_memory().total // 2**20,
             flops=DeviceFlops(fp32=0, fp16=0, int8=0),
         )
 
 
-def windows_device_capabilities() -> DeviceCapabilities:
-    import psutil
+async def windows_device_capabilities() -> DeviceCapabilities:
+    """
+    Retrieves device capabilities for Windows systems.
+    Attempts dynamic TFLOPS calculation for NVIDIA GPUs with CUDA, otherwise uses static values.
 
-    def get_gpu_info():
-        import win32com.client  # install pywin32
+    Returns:
+        DeviceCapabilities: The capabilities of the Windows device.
+    """
+    import win32com.client
 
-        wmiObj = win32com.client.GetObject("winmgmts:\\\\.\\root\\cimv2")
-        gpus = wmiObj.ExecQuery("SELECT * FROM Win32_VideoController")
-
-        gpu_info = []
-        for gpu in gpus:
-            info = {
-                "Name": gpu.Name,
-                "AdapterRAM": gpu.AdapterRAM,  # Bug in this property, returns -ve for VRAM > 4GB (uint32 overflow)
-                "DriverVersion": gpu.DriverVersion,
-                "VideoProcessor": gpu.VideoProcessor,
-            }
-            gpu_info.append(info)
-
-        return gpu_info
-
-    gpus_info = get_gpu_info()
-    gpu_names = [gpu["Name"] for gpu in gpus_info]
-
-    contains_nvidia = any("nvidia" in gpu_name.lower() for gpu_name in gpu_names)
+    wmi = win32com.client.GetObject("winmgmts:\\\\.\\root\\cimv2")
+    gpus = wmi.ExecQuery("SELECT * FROM Win32_VideoController")
+    gpu_names = [gpu.Name for gpu in gpus]
     contains_amd = any("amd" in gpu_name.lower() for gpu_name in gpu_names)
 
-    if contains_nvidia:
+    if any("nvidia" in gpu_name.lower() for gpu_name in gpu_names):
         import pynvml
 
         pynvml.nvmlInit()
         handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-        gpu_raw_name = pynvml.nvmlDeviceGetName(handle).upper()
+        gpu_raw_name = pynvml.nvmlDeviceGetName(handle).decode("utf-8").upper()
         gpu_name = (
             gpu_raw_name.rsplit(" ", 1)[0]
             if gpu_raw_name.endswith("GB")
             else gpu_raw_name
         )
         gpu_memory_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+        pynvml.nvmlShutdown()
 
-        if DEBUG >= 2:
-            print(f"NVIDIA device {gpu_name=} {gpu_memory_info=}")
+        # Try dynamic TFLOPS calculation
+        dynamic_flops = await calculate_tflops(gpu_name)
+        if dynamic_flops:
+            flops = dynamic_flops
+        else:
+            flops = CHIP_FLOPS.get(gpu_name, DeviceFlops(fp32=0, fp16=0, int8=0))
 
         return DeviceCapabilities(
             model=f"Windows Box ({gpu_name})",
             chip=gpu_name,
-            memory=gpu_memory_info.total // 2**20,
-            flops=CHIP_FLOPS.get(gpu_name, DeviceFlops(fp32=0, fp16=0, int8=0)),
+            memory=gpu_memory_info.total // 2**20,  # Convert bytes to MB
+            flops=flops,
         )
     elif contains_amd:
         # For AMD GPUs, pyrsmi is the way (Official python package for rocm-smi)
@@ -485,8 +582,9 @@ def windows_device_capabilities() -> DeviceCapabilities:
             flops=DeviceFlops(fp32=0, fp16=0, int8=0),
         )
     else:
+        # Non-NVIDIA or unsupported devices
         return DeviceCapabilities(
-            model=f"Windows Box (Device: Unknown)",
+            model="Windows Box (Device: Unknown)",
             chip=f"Unknown Chip (Device(s): {gpu_names})",
             memory=psutil.virtual_memory().total // 2**20,
             flops=DeviceFlops(fp32=0, fp16=0, int8=0),
